@@ -326,6 +326,175 @@ kubectl exec my-nginx -- curl -s localhost:80
 
 ---
 
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: advanced-pod
+  namespace: default
+  labels:
+    app: demo-app
+    environment: dev
+spec:
+  restartPolicy: Always
+  serviceAccountName: default
+  dnsPolicy: ClusterFirst
+
+  imagePullSecrets:
+    - name: regcred
+
+  nodeSelector:
+    disktype: ssd
+
+  tolerations:
+    - key: "environment"
+      operator: "Equal"
+      value: "dev"
+      effect: "NoSchedule"
+
+  hostAliases:
+    - ip: "192.168.1.100"
+      hostnames:
+        - "internal-app.local"
+
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 2000
+
+  containers:
+
+    # Main Application Container
+    - name: nginx-container
+      image: nginx:1.27
+      imagePullPolicy: IfNotPresent
+
+      ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+
+        - containerPort: 443
+          name: https
+          protocol: TCP
+
+      env:
+        - name: APP_ENV
+          value: "production"
+
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: password
+
+      envFrom:
+        - configMapRef:
+            name: app-config
+
+      resources:
+        requests:
+          cpu: "250m"
+          memory: "256Mi"
+        limits:
+          cpu: "500m"
+          memory: "512Mi"
+
+      volumeMounts:
+        - name: app-data
+          mountPath: /usr/share/nginx/html
+
+        - name: config-volume
+          mountPath: /etc/config
+
+        - name: secret-volume
+          mountPath: /etc/secrets
+          readOnly: true
+
+      readinessProbe:
+        httpGet:
+          path: /
+          port: 80
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 2
+        failureThreshold: 3
+
+      livenessProbe:
+        httpGet:
+          path: /
+          port: 80
+        initialDelaySeconds: 15
+        periodSeconds: 20
+        timeoutSeconds: 2
+        failureThreshold: 3
+
+      startupProbe:
+        httpGet:
+          path: /
+          port: 80
+        failureThreshold: 30
+        periodSeconds: 10
+
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+
+    # Sidecar Container
+    - name: log-sidecar
+      image: busybox:latest
+      command:
+        - sh
+        - -c
+        - |
+          while true; do
+            date >> /var/log/app/access.log
+            sleep 30
+          done
+
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "128Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+
+      volumeMounts:
+        - name: app-logs
+          mountPath: /var/log/app
+
+  volumes:
+
+    # Shared data volume
+    - name: app-data
+      emptyDir: {}
+
+    # Shared log volume
+    - name: app-logs
+      emptyDir:
+        sizeLimit: 1Gi
+
+    # ConfigMap volume
+    - name: config-volume
+      configMap:
+        name: app-config
+
+    # Secret volume
+    - name: secret-volume
+      secret:
+        secretName: db-secret
+
+    # HostPath volume
+    - name: host-storage
+      hostPath:
+        path: /data
+        type: DirectoryOrCreate
+
+```
+
+---
+
 ## Pod Status Problems
 
 ### ImagePullBackOff
